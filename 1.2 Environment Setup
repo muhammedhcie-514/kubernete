@@ -1,0 +1,116 @@
+Step 1 Set node names.
+Run the following commands on the six nodes in sequence to set the node names to
+k8smaster1, k8smaster2, k8smaster3, k8snode1, k8snode2, and k8snode3:
+[root@localhost ~]# hostnamectl hostname k8smaster1
+[root@localhost ~]# sudo -i
+[root@k8smaster1 ~]#
+
+
+
+Step 2 Configure node name resolution for hosts.
+Run the following commands on all nodes:
+cat <<EOF>>/etc/hosts
+192.168.1.11 k8smaster1
+192.168.1.12 k8smaster2
+192.168.1.13 k8smaster3
+192.168.1.14 k8snode1
+192.168.1.15 k8snode2
+192.168.1.16 k8snode3
+EOF
+
+
+
+Step 3 Configure password-free login.
+Run the following command on the k8smaster1 node and press Enter repeatedly to
+generate a key file:
+[root@k8smaster1 ~]# ssh-keygen
+
+Copy the key on the k8smaster1 node to the other five nodes, for example, k8smaster2.
+[root@k8smaster1 ~]# ssh-copy-id k8smaster2
+Type yes and the node login password as prompted
+
+
+
+
+
+
+Step 4 Clear iptables and disable the firewall and SELinux.
+Run the following commands on all nodes:
+iptables -F
+setenforce 0
+sed -i 's/^SELINUX=.*/SELINUX=disabled/g' /etc/selinux/config
+systemctl stop firewalld && systemctl disable firewalld
+
+
+Step 5 Disable the swap partition.
+Run the following commands on all nodes:
+swapoff -a
+sed -i 's/.*swap.*/#&/' /etc/fstab
+
+
+
+Step 6 Enable ipvs.
+Run the following commands on all nodes:
+cat > /etc/sysconfig/modules/ipvs.modules <<END
+#!/bin/bash
+ipvs_modules="ip_vs ip_vs_lc ip_vs_wlc ip_vs_rr ip_vs_wrr ip_vs_lblc ip_vs_lblcr ip_vs_dh ip_vs_sh
+ip_vs_nq ip_vs_sed ip_vs_ftp nf_conntrack"
+for kernel_module in ${ipvs_modules}; do
+/sbin/modinfo -F filename ${kernel_module} > /dev/null 2>&1
+if [ 0 -eq 0 ]; then
+/sbin/modprobe ${kernel_module}
+fi
+done
+END
+chmod 755 /etc/sysconfig/modules/ipvs.modules
+bash /etc/sysconfig/modules/ipvs.modules
+
+
+
+Step 7 Set time synchronization.
+Run the following commands on all nodes:
+yum install -y chrony
+systemctl enable --now chronyd
+chronyc sources
+
+
+
+Step 8 Configure a Yum repository.
+Run the following command on all nodes to configure the Yum repository of Kubernetes:
+cat > /etc/yum.repos.d/kubernetes.repo<<EOF
+[kubernetes]
+name=Kubernetes
+baseurl=https://repo.huaweicloud.com/kubernetes/yum/repos/kubernetes-el7-x86_64
+enabled=1
+gpgcheck=1
+repo_gpgcheck=0
+gpgkey=https://repo.huaweicloud.com/kubernetes/yum/doc/yum-key.gpg
+https://repo.huaweicloud.com/kubernetes/yum/doc/rpm-package-key.gpg
+EOF
+
+
+
+Step 9 Install Docker.
+Run the following commands on all nodes to install and start Docker:
+yum install -y docker
+systemctl enable docker && systemctl start docker
+Run the following command on all nodes to change cgroupdriver of Docker to systemd
+and add the configuration to /etc/docker/daemon.json:
+cat <<EOF > /etc/docker/daemon.json
+{
+ "exec-opts": ["native.cgroupdriver=systemd"]
+}
+EOF
+Run the following commands on all nodes to restart Docker:
+systemctl daemon-reload
+systemctl restart docker
+Run the following command on all nodes to check the Docker status:
+systemctl status docker
+
+
+
+
+
+
+
+
