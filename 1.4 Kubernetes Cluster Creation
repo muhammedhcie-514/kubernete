@@ -1,0 +1,146 @@
+Step 1 Install the Kubernetes software package.
+Run the following commands on all nodes:
+yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+systemctl enable --now kubelet
+Step 2 Create a working directory.
+mkdir /root/deploy
+cd /root/deploy
+
+
+Step 3 Create a kubeadm-init.yaml initialization file.
+Create a YAML file for cluster initialization on all master nodes and set key
+configurations. Ensure that the indentation of each field is the same.
+cat > kubeadm-init.yaml < EOF
+apiVersion: kubeadm.k8s.io/v1beta2
+kind: ClusterConfiguration
+kubernetesVersion: v1.23.1
+imageRepository: swr.cn-east-3.myhuaweicloud.com/hcie_openeuler
+controlPlaneEndpoint: 192.168.1.10:16443
+dns:
+ type: CoreDNS
+apiServer:
+ certSANs:
+ - 192.168.1.10
+networking:
+ podSubnet: 10.0.0.0/8
+ serviceSubnet: 172.16.0.0/16
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: ipvs
+EOF
+
+
+Step 4 Pull the Kubernetes image.
+Run the following command on all nodes:
+kubeadm config images pull --config kubeadm-init.yaml
+
+
+
+Step 5 Initialize the cluster.
+Run the following initialization command on the k8smaster1 node:
+kubeadm init --config kubeadm-init.yaml
+After the command is executed, the following two commands are generated for
+subsequent use. The first one is used to add the other two master nodes to the cluster,
+and the second one is used to add three nodes to the cluster.
+
+If the initialization fails, perform step 12 to reset the initialization after the fault is
+rectified.
+
+
+
+Step 6 Copy the config file.
+Run the following commands on the k8smaster1 node to copy the config file generated
+during kubectl initialization. The file records the access address of the API Server,
+allowing you to run the kubectl command to connect to the API Server.
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+
+Step 7 Copy certificates.
+Run the following commands on the k8smaster2 and k8smaster3 nodes to create
+folders for storing certificates:
+mkdir -p /etc/kubernetes/pki/
+mkdir -p /etc/kubernetes/pki/etcd
+Run the following commands on the k8smaster1 node to transfer certificates to the
+k8smaster2 and k8smaster3 nodes:
+scp /etc/kubernetes/pki/ca.* /etc/kubernetes/pki/sa.* /etc/kubernetes/pki/front-proxy-ca.*
+k8smaster2:/etc/kubernetes/pki/
+scp /etc/kubernetes/pki/etcd/ca.* k8smaster2:/etc/kubernetes/pki/etcd/
+scp /etc/kubernetes/admin.conf k8smaster2:/etc/kubernetes/
+scp /etc/kubernetes/pki/ca.* /etc/kubernetes/pki/sa.* /etc/kubernetes/pki/front-proxy-ca.*
+k8smaster3:/etc/kubernetes/pki/
+scp /etc/kubernetes/pki/etcd/ca.* k8smaster3:/etc/kubernetes/pki/etcd/
+scp /etc/kubernetes/admin.conf k8smaster3:/etc/kubernetes/
+
+
+
+Step 8 Add other master nodes to the cluster.
+Run the kubeadm join command generated during initialization to add a node to the
+cluster. The command contains the token and can be classified into the command for 
+adding the master node to the control plane and the command for adding the node to
+the cluster.
+
+Run the kubeadm join command on the k8smaster2 and k8smaster3 nodes to add
+them to the cluster. Do not directly copy the following example command but copy the
+command generated during kubeadm initialization.
+kubeadm join 192.168.1.10:16443 --token aipo4t.mfr0sigv4cfx7rud \
+ --discovery-token-ca-cert-hash sha256:XXXXXX \
+ --control-plane
+
+If the join operation fails, perform step 12 to reset the initialization after the fault is
+rectified.
+Run the following commands on the k8smaster2 and k8smaster3 nodes to copy the
+kubeconfig file:
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+Step 9 Add nodes to the cluster.
+Run the command generated during initialization on the three nodes to add them to the
+cluster. Note that the --control-plane option is not required and you need to copy the
+command generated during kubeadm initialization instead of directly copying the
+following example command:
+kubeadm join 10.0.0.10:16443 --token aipo4t.mfr0sigv4cfx7rud \
+ --discovery-token-ca-cert-hash sha256:XXXXXX
+
+If the join operation fails, perform step 12 to reset the initialization after the fault is
+rectified.
+Run the following command on k8smaster1 to check the node status:
+[root@k8smaster1 ~]# kubectl get nodes
+
+Step 10 Install the network plug-in Calico.
+Run the following commands on the k8smaster1 node:
+curl -O https://docs.projectcalico.org/archive/v3.23/manifests/calico.yaml
+kubectl apply -f calico.yaml
+
+
+
+Step 11 Check the node status.
+
+Wait several minutes after Calico is deployed. Run the following command on
+k8smaster1 to verify that the status of all nodes is Ready:
+kubectl get nodes
+
+
+Verify that the status of all pods is Running.
+kubectl get pods -n kube-system -o wide
+
+Step 12 (Optional) Perform reset upon an initialization error.
+If an error is reported when you run the kubeadm init command, reset the initialization
+and then perform the initialization again. If an error is reported when you run the
+kubeadm join command, reset the join operations, but this will delete the certificate,
+requiring you to transfer the certificate from the k8smaster1 node again.
+kubeadm reset -f
+
+
+Step 13 (Optional) Regenerate a token if the token expires.
+kubeadm token create --print-join-command
+
+
+
+
+
+
+
