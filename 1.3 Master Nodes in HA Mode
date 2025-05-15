@@ -1,0 +1,90 @@
+Step 1 Install NGINX and Keepalived.
+Run the following command on the three master nodes to install NGINX and Keepalived:
+yum install -y nginx keepalived nginx-all-modules
+Step 2 Modify the NGINX configuration file.
+Add the following content in bold to the /etc/nginx/nginx.conf configuration file of the
+three master nodes:
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
+include /usr/share/nginx/modules/*.conf;
+events {
+ worker_connections 1024;
+}
+stream {
+ log_format main '$remote_addr $upstream_addr - [$time_local] $status
+$upstream_bytes_sent';
+ access_log /var/log/nginx/k8s-access.log main;
+ upstream k8s-apiserver {
+ server 192.168.1.11:6443;
+ server 192.168.1.12:6443;
+ server 192.168.1.13:6443;
+ }
+ server {
+ listen 16443;
+ proxy_pass k8s-apiserver;
+ }
+}
+
+
+Step 3 Modify the Keepalived configuration file.
+Overwrite the /etc/keepalived/keepalived.conf configuration file of the k8smaster1
+node.
+cat > /etc/keepalived/keepalived.conf<<EOF
+! Configuration File for keepalived
+global_defs {
+ router_id master1
+}
+vrrp_instance Nginx {
+ state MASTER
+ interface ens3
+ virtual_router_id 51
+ priority 200
+ advert_int 1
+ authentication {
+ auth_type PASS
+ auth_pass Huawei@1
+ }
+ virtual_ipaddress {
+ 192.168.1.10/24
+ }
+}
+EOF
+
+The configurations of k8smaster2 and k8smaster3 are the same as the preceding
+configurations. Note that the value of state must be changed to BACKUP and that of
+priority must be reduced. For example, the priority value of k8smaster2 is 150, and
+k8smaster3, 100.
+
+
+Step 4 Start NGINX and Keepalived.
+Run the following commands on the three master nodes:
+systemctl enable nginx --now
+systemctl enable keepalived --now
+
+
+
+Step 5 Verify the configuration results.
+Run the following commands on the three master nodes and verify that the NGINX and
+Keepalived processes are in the active(running) state:
+systemctl status nginx
+systemctl status keepalived
+The VIP 192.168.1.10 is displayed in the IP address of the k8smaster1 node.
+
+
+The VIP 192.168.1.10 can be pinged on all nodes. Note that if Huawei Cloud Elastic
+Cloud Servers (ECSs) are used, disable Source/Destination Check for the NICs of the
+ECSs.
+
+Step 6 Verify HA switchover.
+Stop the Keepalived service on k8smaster1 and switch the VIP 192.168.1.10 to
+k8smaster2.
+[root@k8smaster1 ~]# systemctl stop keepalived
+
+Start the Keepalived service on k8smaster1. The VIP 192.168.1.10 returns to k8smaster1
+and can be pinged on all nodes.
+[root@k8smaster1 ~]# systemctl start keepalived
+
+
+
