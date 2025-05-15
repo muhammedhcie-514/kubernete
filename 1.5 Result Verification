@@ -1,0 +1,31 @@
+Step 1 Create a Deployment.
+On the k8smaster1 node, use the following YAML file to create a Deployment:
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+ creationTimestamp: null
+ labels:
+ app: busybox
+ name: busybox
+spec:
+ replicas: 2
+ selector:
+ matchLabels:
+ app: busybox
+ strategy:
+ rollingUpdate:
+ maxSurge: 1
+ maxUnavailable: 1
+ template:
+ metadata:
+ labels:
+ app: busybox
+ spec:
+ containers:
+ - image: busybox:latest
+ name: busybox
+ command: ["sleep","99d"]
+After the creation is complete, check whether the pods are normal. If the following
+information is displayed, the pods are normal:
+kubectl get pod -o wide
+
